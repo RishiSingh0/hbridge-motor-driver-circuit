@@ -123,7 +123,6 @@ I brought the PWM back up to 10 kHz, then pushed it to **20 kHz for the final de
 
 1. **PWM has to be in the very first integration test.** Shoot-through only shows up during a transition, so a DC bench bring-up is structurally incapable of catching it. If you wait until PID integration to introduce PWM, the first time you see the failure is also the first time you're losing FETs.
 2. **Don't roll complementary MOSFET drive from a generic optocoupler.** LTV816 transition times (up to 18 µs) are more than an order of magnitude slower than the sub-microsecond edges you need at 10–20 kHz. If I respin this board, I'm using a dedicated half-bridge gate driver IC (IR2184 / IR2110 or similar) with built-in dead-time, or driving each gate independently from the start and adding firmware dead-time explicitly.
-3. **Shared-gate drive has no margin.** Using one signal's polarity to turn one FET on and the other off assumes both transitions are identical and instant. Any mismatch shows up as shoot-through.
 
 ---
 
