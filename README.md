@@ -24,7 +24,7 @@ One GPIO per leg, through an LTV816 optocoupler, driving **both** the high-side 
 
 ## The half-way demo passed
 
-For the half-way demo I brought the board up against a bench power supply and tested it the simplest way you can test an H-bridge: hold CW at a 3.3 V DC level on the optocoupler input and watch the motor spin right, then drop CW, assert CCW, and watch it spin left. Motor spun both ways, nothing got hot, and I moved on to integration.
+For the half-way demo I brought the board up against a bench power supply and tested it the simplest way you can test an H-bridge: hold CW at a 3.3 V DC level on the optocoupler input and watch the motor spin right, then drop CW, assert CCW, and watch it spin left. Motor spun both ways, nothing got hot, and I moved on to integration. (Note: during PID integration the firmware's CW/CCW labels were later swapped, so the final RoboMaestro `MotorCW` drives the opposite physical direction from what this paragraph calls "right".)
 
 A DC command only transitions once, when you change direction, and a single transition is too brief to cause meaningful heating even if shoot-through is happening on it. The bench test was only checking the steady states on either side of the transition, not the transition itself.
 
