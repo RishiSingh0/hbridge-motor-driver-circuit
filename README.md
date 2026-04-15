@@ -96,16 +96,17 @@ And reinstalled in the stack:
 
 ![Reworked H-bridge daughter board plugged back into the motherboard stack](images/hbridgepluggedintomotherboard.png)
 
-After the rework, the total signal count into the H-bridge was 4 GPIOs: 2 PWM lines to the NMOSes (unchanged from the original), plus 2 enable lines to the new PMOS-drive optos. The firmware-side logic collapses into a small table:
+After the rework, the total signal count into the H-bridge was 4 GPIOs: 2 PWM lines to the NMOSes (unchanged from the original), plus 2 enable lines to the new PMOS-drive optos. The firmware-side logic, written in terms of the actual MCU pin voltages, collapses into a small table:
 
-| State | PMOS_EN_A | PMOS_EN_B | NMOS_A (PWM) | NMOS_B (PWM) |
+| State | EN1 | EN2 | N1 | N2 |
 |---|---|---|---|---|
-| Idle / coast | OFF | OFF | OFF | OFF |
-| Drive CW | ON | OFF | OFF | PWM |
-| Drive CCW | OFF | ON | PWM | OFF |
-| Direction change | disable both, then assert the new pair | | | |
+| Idle / coast | 3.3V | 3.3V | 0V | 0V |
+| Drive CW | 0V | 3.3V | 0V | PWM |
+| Drive CCW | 3.3V | 0V | PWM | 0V |
 
-On any CW↔CCW transition, the firmware disables both PMOS enables before asserting the opposite pair. No overlap is possible, because the PMOSes can only be ON when the MCU explicitly says so, and the firmware never asserts both enables simultaneously.
+`EN1`/`EN2` are **active-low** through the opto (0V → LED lit → BJT on → PMOS gate pulled low → P ON). `N1`/`N2` are **non-inverting** overall (3.3V → N ON, 0V → N OFF), so "PWM" in the table means the pin is pulsed between 0V and 3.3V and the NMOS follows directly. CW drives diagonally through P1 + N2; CCW drives diagonally through P2 + N1.
+
+On any CW↔CCW transition, the firmware first drives both EN pins to 3.3V (both PMOSes off) before asserting the opposite pair. No overlap is possible, because the PMOSes can only be ON when the MCU explicitly pulls an EN pin low, and the firmware never pulls both EN pins low simultaneously.
 
 The two new optos don't need to be fast either. They're not in the PWM path. They only switch at direction changes, which happen orders of magnitude slower than the PWM frequency, so their multi-µs transition times don't matter.
 
