@@ -63,7 +63,7 @@ The boards were already fabricated and populated. Whatever the fix was, it had t
 
 ## The idea I considered and dropped
 
-My first instinct was to add some form of dead-time: either on the firmware side, or with passive components at the gates. I spent a bit of time on this before realising that if I could just give the MCU direct hardware control over when each PMOS is allowed to be on, I wouldn't need dead-time in the first place. The PMOS could only ever be on when the firmware explicitly said so, and the firmware would simply never allow both PMOSes on at once. That turned out to be much cleaner, and that's the direction I went.
+My first instinct was to add some form of dead-time: either on the firmware side, or with passive components at the gates. I spent a bit of time on this before realising that if I could just give the MCU direct hardware control over when each PMOS is allowed to be on, I wouldn't need dead-time in the first place. The PMOS could only ever be on when the firmware explicitly said so, and the firmware would simply never allow both PMOSes on at once. Software dead-time also had a separate problem: it would have inserted delay into every PWM transition, which would have shown up as tempo drift in the piano playing since the PID is closing a position loop around a moving musical instrument. The hardware enable approach avoids both issues, and that's the direction I went.
 
 ## The fix: break the shared gate and give the MCU hardware enables
 
@@ -72,9 +72,9 @@ Instead of trying to shape the existing shared-gate drive, I decided to split it
 The new topology:
 
 1. Cut 4 traces, two per leg (one on the gate-to-gate run between the NMOS and PMOS, one on the signal trace going into the PMOS gate). In hindsight one cut per leg would have been enough, just the signal-to-PMOS-gate trace, and the original front-side optocoupler could have kept driving the NMOS while the new back-side optos drove the isolated PMOS gates. But I did this rework between 1 and 4am and wasn't optimising for minimum cuts; I just wanted the PMOS gate completely off the shared node.
-2. Add 2 new STM32 GPIOs as dedicated PMOS enables, one per leg.
-3. Add 2 new single-channel optocouplers driven by those GPIOs, and wire their outputs to the now-isolated PMOS gates.
-4. Add pull-down resistors on the NMOS gates. With the shared-gate node broken, the NMOS side now needs its own defined OFF state when its opto is idle.
+2. Desolder the original 10 kΩ pull-ups (R3, R4) and replace them with 2 kΩ. These resistors sit on the (now NMOS-only) shared node, and the smaller value drops the RC time constant enough for the NMOS gate to track 10+ kHz PWM without the transition-overlap problem.
+3. Add 2 new STM32 GPIOs (PB5 and PB6) as dedicated PMOS enables, one per leg.
+4. Add 2 new single-channel optocouplers driven by those GPIOs, wired to the now-isolated PMOS gates. Also solder in 2 more 2 kΩ resistors as pull-ups on the new optos' output side so the PMOS gates have a defined state when the enable signal is idle.
 
 The two new optos were soldered **directly onto the back of the existing PCB**. The original LTV816s were through-hole parts, so their pins were already exposed on the back side and I could tap into them with bodge wires. No extra perfboard, no sub-board, just two optos and some wire on the back of the existing board.
 
