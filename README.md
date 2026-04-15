@@ -1,6 +1,6 @@
 # H-Bridge Motor Driver
 
-This is the motor driver for **Robo Maestro**, a piano-playing robot I built with my team for ELEC 391 (2025W2). It lives on its own daughter board and drives a 324:1 geared DC motor that slides the robot's hand left and right along the keyboard. A PID loop running on an STM32F446 on the [piano-robot-motherboard](https://github.com/RishiSingh0/piano-robot-motherboard) closes the position loop over this board.
+This is the motor driver for **Robo Maestro**, a piano-playing robot I built with my team for ELEC 391 (2025W2). It lives on its own daughter board and drives a geared DC motor that slides the robot's hand left and right along the keyboard. A PID loop running on an STM32F446 on the [piano-robot-motherboard](https://github.com/RishiSingh0/piano-robot-motherboard) closes the position loop over this board.
 
 The short version: I designed it, it passed the half-way demo on a bench DC signal, and the first time the control team hit it with real PWM at 10 kHz the MOSFETs started cooking within seconds. The boards were already fabricated, so the fix had to happen on the physical board I already had. The reworked board ran the full song at 20 kHz PWM in the final demo.
 
@@ -16,9 +16,9 @@ The design split the MCU side from the motor's HV+ rail and used optocouplers to
 
 Here are the schematic and layout I sent off to JLCPCB:
 
-![H-Bridge v2 schematic — original as-fabricated design with shared-gate optocoupler drive](schematic/hbridgeV2.png)
+![H-Bridge v2 schematic, original as-fabricated design with shared-gate optocoupler drive](schematic/hbridgeV2.png)
 
-![H-Bridge v2 PCB layout — top view of the fabricated board with J_MCU connector on the left, the two LTV816 optocouplers driving the gate traces, and two half-bridges feeding the motor connector on the right](images/layout.png)
+![H-Bridge v2 PCB layout, top view of the fabricated board with J_MCU connector on the left, the two LTV816 optocouplers driving the gate traces, and two half-bridges feeding the motor connector on the right](images/layout.png)
 
 One GPIO per leg, through an LTV816 optocoupler, driving **both** the high-side PMOS (SUP70101EL-GE3) and the low-side NMOS (IRLB3813PBF) from the same gate trace. PMOS and NMOS are naturally complementary, so in theory one signal is enough: take the trace high, NMOS on and PMOS off; take it low, PMOS on and NMOS off. Two legs, two opto lines, done. HV+ rail 12–16 V, motor stall 8.5 A, motor connector in the middle.
 
@@ -30,9 +30,9 @@ A DC command only transitions once, when you change direction, and a single tran
 
 ## PWM came in during integration and immediately started frying FETs
 
-During integration, the control team started feeding the H-bridge real PID output. At first the PWM was slow enough that it still behaved, but then they bumped the PWM frequency up to 10 kHz for finer control out of the PID loop — and that's when the MOSFETs started running hot and burning out.
+During integration, the STM32 started driving the H-bridge's CW and CCW inputs with 10 kHz PWM from TIM1 (channels 1 and 2 on PA8 and PA9). Within seconds the MOSFETs started running hot and burning out.
 
-Because the board had worked at the half-way demo, my first instinct was that something on the software side was wrong. Nothing in the hardware had changed, and the only new variable was the waveform coming out of the STM32. I spent a while digging into the firmware — PWM setup, timer channels, the duty cycle path — and got nowhere. Nothing on the software side actually looked broken.
+Because the board had worked at the half-way demo, my first instinct was that something on the software side had gone wrong. Nothing in the hardware had changed, and the only new variable was the waveform coming out of the STM32, so I spent a while digging into the firmware (PWM setup, timer channels, the duty cycle path) and got nowhere. Nothing on the software side actually looked broken. In the meantime we dropped the PWM frequency way down just to see what would happen. The FETs still got hot, just much more slowly, which was itself a clue: whatever was cooking them was happening per switching edge, not per steady-state cycle, so it was pointing at something that scaled with transition rate rather than at a software bug.
 
 So I pivoted back to hardware. I searched for why MOSFETs might run hot under PWM and found articles on **shoot-through current** in H-bridges caused by MOSFET transition times. The idea: if both FETs in a half-bridge are even momentarily on at the same time, there's a dead short from HV+ to GND, and if that happens on every PWM edge you're shorting the supply thousands of times a second. I took that to the scope.
 
@@ -43,30 +43,27 @@ I put a Tektronix scope on one half-bridge leg and looked at VGS on both FETs si
 - Low-side (NMOS): probe directly on the gate, since the source is at GND.
 - High-side (PMOS): math channel `CH1 − CH2`, with CH1 on the PMOS gate and CH2 on its source at HV+. You need the difference because the PMOS source floats at HV+, not GND.
 
-Then I fed the 10 kHz PWM in and watched the edges:
+Then I fed PWM in and froze the scope on a transition edge:
 
 ![Scope trace before the rework: both VGS traces transition at the same instant and cross through the mid-rail together, with an X-shaped overlap region where both FETs are partially conducting](scope/before/shortthrough.jpg)
 
-Both traces X through each other in the middle of every edge. For the duration of that X, both FETs are sitting in their linear regions together and there's a low-resistance path from HV+ through both of them straight to GND. At 10 kHz that's happening on every single PWM edge — tens of thousands of near-shorts across the supply per second, which is exactly what was cooking the FETs.
+Both traces X through each other in the middle of every edge. For the duration of that X, both FETs are sitting in their linear regions together and there's a low-resistance path from HV+ through both of them straight to GND. At 10 kHz that's happening on every single PWM edge, which works out to tens of thousands of near-shorts across the supply per second. Exactly what was cooking the FETs.
 
 ## Where the slow transition actually comes from
 
 With the failure confirmed on the scope, I went back to the datasheets to work out why the transitions were so slow in the first place.
 
-The LTV816 phototransistor output transition time is around 4 µs typical and as much as 18 µs worst case. That's already a long edge. On top of that, the shared-gate node on each leg is loaded with:
+The LTV816 phototransistor output transition time alone is around 4 µs typical and up to 18 µs worst case. That's already a long edge. On top of that, the shared-gate node on each leg is loaded by both the PMOS and the NMOS input capacitance (Ciss), which for these power FETs is in the multi-nF range each. Call it somewhere around 10–15 nF total hanging off the 10 kΩ pull-up.
 
-- SUP70101EL-GE3 PMOS input capacitance, `Ciss` ≈ 7 nF
-- IRLB3813PBF NMOS input capacitance, `Ciss` ≈ 8.4 nF
-
-So roughly 15 nF of gate capacitance hanging off a 10 kΩ pull-up. That gives an RC time constant on the order of 150 µs, and the PWM period at 10 kHz is 100 µs. The gate can't finish its transition before the next one starts, so both FETs spend a huge fraction of every period sitting in their linear region at the same time. With these parts and this topology, there was no PWM duty cycle that would have actually worked at 10 kHz.
+That gives an RC time constant somewhere around 100–150 µs, comparable to or longer than the 100 µs PWM period at 10 kHz. The gate can't finish its transition before the next one starts, so both FETs spend a huge fraction of every period sitting in their linear region at the same time. With these parts and this topology, there was no PWM duty cycle that would have actually worked at 10 kHz.
 
 ## The constraint I had to design around
 
-The boards were already fabricated and populated, and the final demo was a few weeks away. Whatever the fix was, it had to happen on this physical piece of FR4, not a respin.
+The boards were already fabricated and populated. Whatever the fix was, it had to happen on this physical piece of FR4, not a respin.
 
 ## The idea I considered and dropped
 
-My first instinct was to add some form of dead-time: either on the firmware side, or with passive components at the gates. I spent a bit of time on this before realising that if I could just give the MCU direct hardware control over when each PMOS is allowed to be on, I wouldn't need dead-time in the first place — the PMOS could only ever be on when the firmware explicitly said so, and the firmware would simply never allow both PMOSes on at once. That turned out to be much cleaner, and that's the direction I went.
+My first instinct was to add some form of dead-time: either on the firmware side, or with passive components at the gates. I spent a bit of time on this before realising that if I could just give the MCU direct hardware control over when each PMOS is allowed to be on, I wouldn't need dead-time in the first place. The PMOS could only ever be on when the firmware explicitly said so, and the firmware would simply never allow both PMOSes on at once. That turned out to be much cleaner, and that's the direction I went.
 
 ## The fix: break the shared gate and give the MCU hardware enables
 
@@ -74,12 +71,12 @@ Instead of trying to shape the existing shared-gate drive, I decided to split it
 
 The new topology:
 
-1. Cut the 4 PMOS gate traces, separating each PMOS from its leg's shared signal.
-2. Add 2 new STM32 GPIOs as dedicated PMOS enables — one per leg.
+1. Cut 4 traces, two per leg (one on the gate-to-gate run between the NMOS and PMOS, one on the signal trace going into the PMOS gate). In hindsight one cut per leg would have been enough, just the signal-to-PMOS-gate trace, and the original front-side optocoupler could have kept driving the NMOS while the new back-side optos drove the isolated PMOS gates. But I did this rework between 1 and 4am and wasn't optimising for minimum cuts; I just wanted the PMOS gate completely off the shared node.
+2. Add 2 new STM32 GPIOs as dedicated PMOS enables, one per leg.
 3. Add 2 new single-channel optocouplers driven by those GPIOs, and wire their outputs to the now-isolated PMOS gates.
 4. Add pull-down resistors on the NMOS gates. With the shared-gate node broken, the NMOS side now needs its own defined OFF state when its opto is idle.
 
-The two new optos were soldered **directly onto the back of the existing PCB**. The original LTV816s were through-hole parts, so their pins were already exposed on the back side and I could tap into them with bodge wires — no extra perfboard, no sub-board, just two optos and some wire on the back of the existing board.
+The two new optos were soldered **directly onto the back of the existing PCB**. The original LTV816s were through-hole parts, so their pins were already exposed on the back side and I could tap into them with bodge wires. No extra perfboard, no sub-board, just two optos and some wire on the back of the existing board.
 
 Here's what the rework looked like from behind:
 
@@ -108,7 +105,7 @@ After the rework, the total signal count into the H-bridge was 4 GPIOs: 2 PWM li
 
 On any CW↔CCW transition, the firmware disables both PMOS enables before asserting the opposite pair. No overlap is possible, because the PMOSes can only be ON when the MCU explicitly says so, and the firmware never asserts both enables simultaneously.
 
-The two new optos don't need to be fast either. They're not in the PWM path — they only switch at direction changes, which happen orders of magnitude slower than the PWM frequency, so their multi-µs transition times don't matter.
+The two new optos don't need to be fast either. They're not in the PWM path. They only switch at direction changes, which happen orders of magnitude slower than the PWM frequency, so their multi-µs transition times don't matter.
 
 ## After the rework
 
@@ -130,15 +127,15 @@ I brought the PWM back up to 10 kHz, then pushed it to **20 kHz for the final de
 
 ## Files in this repo
 
-- [`schematic/hbridgeV2.pdf`](schematic/hbridgeV2.pdf) — the as-fabricated v2 schematic shown at the top of this README (rendered PNG next to the PDF)
-- [`hardware/`](hardware) — Altium source for the fabricated v2 design (schematic, PCB, BOM, project file)
-- [`scope/before/`](scope/before) and [`scope/after/`](scope/after) — scope captures of VGS on one half-bridge leg before and after the rework
-- [`images/`](images) — planning sketch, original PCB layout, and photos of the bodged board
-- [`notes.txt`](notes.txt) — the raw notes I wrote while figuring out the fix, preserved as-is
+- [`schematic/hbridgeV2.pdf`](schematic/hbridgeV2.pdf): the as-fabricated v2 schematic shown at the top of this README (rendered PNG next to the PDF)
+- [`hardware/`](hardware): Altium source for the fabricated v2 design (schematic, PCB, BOM, project file)
+- [`scope/before/`](scope/before) and [`scope/after/`](scope/after): scope captures of VGS on one half-bridge leg before and after the rework
+- [`images/`](images): planning sketch, original PCB layout, and photos of the bodged board
+- [`notes.txt`](notes.txt): the raw notes I wrote while figuring out the fix, preserved as-is
 
-A clean v3 schematic capturing the post-rework 4-GPIO enable-signal topology will be added later. There's no v3 PCB layout planned — the final demo ran on the reworked v2.
+A clean v3 schematic capturing the post-rework 4-GPIO enable-signal topology will be added later. There's no v3 PCB layout planned; the final demo ran on the reworked v2.
 
 ## Related
 
 - Main system repo: [piano-robot-motherboard](https://github.com/RishiSingh0/piano-robot-motherboard)
-- Background reading that helped: [AllAboutCircuits — H-bridge dead-time and shoot-through](https://www.allaboutcircuits.com/technical-articles/h-bridge-dc-motor-control-complementary-pulse-width-modulation-pwm-shoot-through-dead-time-pwm/)
+- Background reading that helped: [AllAboutCircuits: H-bridge dead-time and shoot-through](https://www.allaboutcircuits.com/technical-articles/h-bridge-dc-motor-control-complementary-pulse-width-modulation-pwm-shoot-through-dead-time-pwm/)
