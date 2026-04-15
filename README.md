@@ -67,7 +67,13 @@ My first instinct was to add some form of dead-time: either on the firmware side
 
 ## The fix: break the shared gate and give the MCU hardware enables
 
-Instead of trying to shape the existing shared-gate drive, I decided to split it apart and give the MCU **independent** control of each PMOS.
+Instead of trying to shape the existing shared-gate drive, I decided to split it apart and give the MCU **independent** control of each PMOS. Here's the clean schematic of the post-rework topology:
+
+![v3 schematic of the reworked H-bridge: original LTV816 optocouplers (U1, U2) driving only the NMOS gates through 2 kΩ pull-ups, plus two new LTV816 optocouplers (U3, U4) driven by dedicated GPIO enable signals and driving the PMOS gates through their own 2 kΩ pull-ups](schematic/motor_driver_v3.png)
+
+And the handwritten planning sketch from when I was deciding what to cut and where to jump:
+
+![Handwritten planning sketch for the rework, showing which traces to cut and where to route the new enable signals](images/planning.png)
 
 The new topology:
 
@@ -89,10 +95,6 @@ And the new enable signal lines being tapped into on the motherboard side:
 And reinstalled in the stack:
 
 ![Reworked H-bridge daughter board plugged back into the motherboard stack](images/hbridgepluggedintomotherboard.png)
-
-(The planning sketch from when I was deciding what to cut and where to jump:)
-
-![Handwritten planning sketch for the rework, showing which traces to cut and where to route the new enable signals](images/planning.png)
 
 After the rework, the total signal count into the H-bridge was 4 GPIOs: 2 PWM lines to the NMOSes (unchanged from the original), plus 2 enable lines to the new PMOS-drive optos. The firmware-side logic collapses into a small table:
 
@@ -128,12 +130,13 @@ I brought the PWM back up to 10 kHz, then pushed it to **20 kHz for the final de
 ## Files in this repo
 
 - [`schematic/hbridgeV2.pdf`](schematic/hbridgeV2.pdf): the as-fabricated v2 schematic shown at the top of this README (rendered PNG next to the PDF)
+- [`schematic/motor_driver_v3.pdf`](schematic/motor_driver_v3.pdf): the post-rework v3 schematic shown in the fix section (rendered PNG next to the PDF)
 - [`hardware/`](hardware): Altium source for the fabricated v2 design (schematic, PCB, BOM, project file)
 - [`scope/before/`](scope/before) and [`scope/after/`](scope/after): scope captures of VGS on one half-bridge leg before and after the rework
 - [`images/`](images): planning sketch, original PCB layout, and photos of the bodged board
 - [`notes.txt`](notes.txt): the raw notes I wrote while figuring out the fix, preserved as-is
 
-A clean v3 schematic capturing the post-rework 4-GPIO enable-signal topology will be added later. There's no v3 PCB layout planned; the final demo ran on the reworked v2.
+There's no v3 PCB layout planned; the final demo ran on the reworked v2.
 
 ## Related
 
