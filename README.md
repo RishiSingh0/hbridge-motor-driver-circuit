@@ -100,7 +100,7 @@ After the rework, the total signal count into the H-bridge was 4 GPIOs: 2 PWM li
 
 | State | PMOS_EN_A | PMOS_EN_B | NMOS_A (PWM) | NMOS_B (PWM) |
 |---|---|---|---|---|
-| Idle / brake | OFF | OFF | OFF | OFF |
+| Idle / coast | OFF | OFF | OFF | OFF |
 | Drive CW | ON | OFF | OFF | PWM |
 | Drive CCW | OFF | ON | PWM | OFF |
 | Direction change | disable both, then assert the new pair | | | |
