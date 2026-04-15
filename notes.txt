@@ -1,0 +1,17 @@
+Original notes written while planning the rework (preserved verbatim):
+
+Hbridge circuit was causing short through current the mosfet was too slow to switch off one one side when hit with pwm when tested with bench power supply it was fine as it was straight dc signal but when hit with pwm the switching resulted in the mosfet falling and rise time to match multiple times leading to vdd and gnd shorting resulting in current flow and heating up of the mosfets eventually frying them. PCBs were already ordered so needed to implement a solution on thhe current pcb cut 4 traces and added 2 new gpio connections as enable signals. Resulting in dead time being added on software side. Attached two new single channel optocoupler and soldered new connections on the back of the pcb resulting in 4 total gpis.
+
+this should eliminate the switching of the pmos that we got from the original schematic when one half is conducting current
+and when switching from CW -> CCW, all PMOS's turn off first and then switch
+ill breadboard it tmrw and maybe we can test it
+to implement it on our pcb we need to:
+cut the gate traces to the pmos
+solder on two optos onto a perfboard
+add the pull down resistors on the nmos
+
+Wait we dont need deadtime nvm if we have hardware solution. Come up with the logic table as wel for these new connections.
+
+https://www.allaboutcircuits.com/technical-articles/h-bridge-dc-motor-control-complementary-pulse-width-modulation-pwm-shoot-through-dead-time-pwm/
+
+So I believe I implanted a hardware solution instead of dead time which is on firmware side? It would cause more delay?
